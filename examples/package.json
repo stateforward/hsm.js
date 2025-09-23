@@ -1,0 +1,11 @@
+{
+  "name": "hsm-examples",
+  "version": "1.0.0",
+  "description": "HSM Framework Examples",
+  "scripts": {
+    "traffic-light": "node traffic_light.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81"
+  }
+}

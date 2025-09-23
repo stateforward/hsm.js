@@ -1,0 +1,31 @@
+{
+    "compress": {
+        "passes": 3,
+        "hoist_props": true,
+        "pure_getters": "strict",
+        "sequences": true,
+        "unused": true,
+        "toplevel": true
+    },
+    "mangle": {
+        "toplevel": true,
+        "properties": {
+            "keep_quoted": true,
+            "builtins": true,
+            "reserved": [
+                "dispatch",
+                "state",
+                "report",
+                "prototype",
+                "unshift",
+                "pop",
+                "startsWith",
+                "length",
+                "push"
+            ]
+        }
+    },
+    "output": {
+        "comments": false
+    }
+}

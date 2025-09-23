@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "typeRoots": [
+            "./types"
+        ],
+        "lib": [
+            "es2015",
+        ]
+    },
+    "include": [
+        "src/hsm.js",
+        "types/globals.d.ts"
+    ]
+}

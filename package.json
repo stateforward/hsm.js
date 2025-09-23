@@ -1,0 +1,58 @@
+{
+    "name": "hsm-js-optimized",
+    "version": "1.0.0",
+    "description": "High-performance Hierarchical State Machine implementation optimized for JavaScript and Espruino",
+    "main": "src/hsm.js",
+    "types": "src/hsm.d.ts",
+    "scripts": {
+        "build": "npm run generate-types && npm run minify",
+        "test": "node --test tests/*.test.js",
+        "generate-types": "tsc",
+        "terser": "terser --config-file terser.config.json -o dist/hsm.min.js -- src/hsm.js",
+        "minify": "uglifyjs src/hsm.js -o dist/hsm.min.js --config-file .uglifyjsrc.json --name-cache nameCache.json"
+    },
+    "keywords": [
+        "state-machine",
+        "hsm",
+        "finite-state-machine",
+        "hierarchical",
+        "promise",
+        "async",
+        "espruino",
+        "embedded",
+        "performance",
+        "optimized",
+        "join"
+    ],
+    "author": "HSM Team",
+    "license": "MIT",
+    "engines": {
+        "node": ">=12.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/your-repo/hsm-js-optimized.git"
+    },
+    "bugs": {
+        "url": "https://github.com/your-repo/hsm-js-optimized/issues"
+    },
+    "homepage": "https://github.com/your-repo/hsm-js-optimized#readme",
+    "devDependencies": {
+        "terser": "^5.41.0",
+        "typescript": "^5.8.3",
+        "uglify-js": "^3.19.3"
+    },
+    "exports": {
+        ".": {
+            "types": "./src/hsm.d.ts",
+            "require": "./src/hsm.js",
+            "import": "./src/hsm.js"
+        }
+    },
+    "dependencies": {
+        "blessed": "^0.1.81",
+        "ink": "^6.0.0",
+        "react": "^19.1.0",
+        "robot3": "^1.1.1"
+    }
+}
