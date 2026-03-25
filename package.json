@@ -1,12 +1,13 @@
 {
-    "name": "hsm-js-optimized",
-    "version": "1.0.0",
+    "name": "@stateforward/hsm",
+    "version": "1.1.1",
     "description": "High-performance Hierarchical State Machine implementation optimized for JavaScript and Espruino",
     "main": "src/hsm.js",
     "types": "src/hsm.d.ts",
     "scripts": {
         "build": "npm run generate-types && npm run minify",
         "test": "node --test tests/*.test.js",
+        "coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 tests/*.test.js",
         "generate-types": "tsc",
         "terser": "terser --config-file terser.config.json -o dist/hsm.min.js -- src/hsm.js",
         "minify": "uglifyjs src/hsm.js -o dist/hsm.min.js --config-file .uglifyjsrc.json --name-cache nameCache.json"
@@ -31,12 +32,12 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/your-repo/hsm-js-optimized.git"
+        "url": "git+https://github.com/stateforward/hsm.js.git"
     },
     "bugs": {
-        "url": "https://github.com/your-repo/hsm-js-optimized/issues"
+        "url": "https://github.com/stateforward/hsm.js/issues"
     },
-    "homepage": "https://github.com/your-repo/hsm-js-optimized#readme",
+    "homepage": "https://github.com/stateforward/hsm.js#readme",
     "devDependencies": {
         "terser": "^5.41.0",
         "typescript": "^5.8.3",
@@ -49,10 +50,11 @@
             "import": "./src/hsm.js"
         }
     },
-    "dependencies": {
-        "blessed": "^0.1.81",
-        "ink": "^6.0.0",
-        "react": "^19.1.0",
-        "robot3": "^1.1.1"
+    "files": [
+        "README.md",
+        "src"
+    ],
+    "publishConfig": {
+        "access": "public"
     }
 }

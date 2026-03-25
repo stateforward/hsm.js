@@ -559,13 +559,14 @@ ShardedGenerators.prototype.next = function () {
 
 // Global sharded generators instance
 var defaultShards = new ShardedGenerators();
+var defaultGenerator = new Generator(getDefaultConfig(), 0, 0);
 
 /**
  * Generate a new MUID using the default sharded generators
  * @returns {MUID} New unique ID
  */
 function make() {
-  return defaultShards.next().id();
+  return defaultGenerator.id();
 }
 
 /**

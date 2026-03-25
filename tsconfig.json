@@ -1,9 +1,9 @@
 {
     "compilerOptions": {
-        "allowJs": true,
-        "declaration": true,
-        "emitDeclarationOnly": true,
-        "outDir": "dist",
+        "allowJs": false,
+        "checkJs": false,
+        "noEmit": true,
+        "skipLibCheck": true,
         "typeRoots": [
             "./types"
         ],
@@ -12,7 +12,7 @@
         ]
     },
     "include": [
-        "src/hsm.js",
+        "src/hsm.d.ts",
         "types/globals.d.ts"
     ]
 }

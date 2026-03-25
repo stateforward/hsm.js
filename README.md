@@ -24,6 +24,7 @@ This optimized JavaScript implementation now **matches and exceeds TypeScript pe
 - **📱 Espruino Compatible**: Runs on embedded JavaScript environments
 - **🛡️ Type Safe**: Generic constraints and comprehensive type definitions
 - **⚡ Zero Runtime Overhead**: Pure JavaScript execution, TypeScript types at design-time
+- **🔁 Cross-Language API Parity**: PascalCase DSL aliases are exported alongside the existing camelCase JS helpers
 
 ## 🔧 Key Optimizations Implemented
 
@@ -91,9 +92,8 @@ const model = hsm.define('MyStateMachine',
 );
 
 const instance = new MyInstance();
-hsm.start(instance, model).then(machine => {
-  return machine.dispatch('start');
-});
+const machine = hsm.start(instance, model);
+machine.dispatch({ name: 'start', kind: hsm.kinds.Event });
 ```
 
 ### TypeScript (Full Type Safety)
@@ -127,7 +127,7 @@ const model = hsm.define('MyStateMachine',
 
 // ✅ Types automatically inferred
 const instance = new MyInstance();
-const machine: hsm.HSM<MyInstance> = await hsm.start(instance, model);
+const machine: hsm.HSM<MyInstance> = hsm.start(instance, model);
 ```
 
 ## 🎯 TypeScript Features

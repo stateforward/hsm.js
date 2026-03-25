@@ -4,52 +4,40 @@ const assert = require('assert');
 // Import the functions we need
 const { kind, isKind } = KindSystem;
 
-// Test counter to generate unique IDs
-function Counter() {
-    this.value = 0;
-}
-
-Counter.prototype.next = function () {
-    var value = this.value;
-    this.value++;
-    return value;
-};
-
-var counter = new Counter();
-
-// Define kinds exactly like in hsm.js
+// Define kinds exactly like the built-in counter flow in hsm.go / hsm.js
 var TestKinds = {};
-TestKinds.Null = counter.next();
-TestKinds.Element = kind(counter.next());
-TestKinds.Partial = kind(counter.next(), TestKinds.Element);
-TestKinds.Vertex = kind(counter.next(), TestKinds.Element);
-TestKinds.Constraint = kind(counter.next(), TestKinds.Element);
-TestKinds.Behavior = kind(counter.next(), TestKinds.Element);
-TestKinds.Concurrent = kind(counter.next(), TestKinds.Behavior);
-TestKinds.Sequential = kind(counter.next(), TestKinds.Behavior);
-TestKinds.StateMachine = kind(counter.next(), TestKinds.Behavior);
-TestKinds.Namespace = kind(counter.next(), TestKinds.Element);
-TestKinds.Attribute = kind(counter.next(), TestKinds.Element);
-TestKinds.State = kind(counter.next(), TestKinds.Vertex, TestKinds.Namespace);
-TestKinds.Model = kind(counter.next(), TestKinds.State);
-TestKinds.Transition = kind(counter.next(), TestKinds.Element);
-TestKinds.Internal = kind(counter.next(), TestKinds.Transition);
-TestKinds.External = kind(counter.next(), TestKinds.Transition);
-TestKinds.Local = kind(counter.next(), TestKinds.Transition);
-TestKinds.Self = kind(counter.next(), TestKinds.Transition);
-TestKinds.Event = kind(counter.next(), TestKinds.Element);
-TestKinds.CompletionEvent = kind(counter.next(), TestKinds.Event);
-TestKinds.ErrorEvent = kind(counter.next(), TestKinds.CompletionEvent);
-TestKinds.TimeEvent = kind(counter.next(), TestKinds.Event);
-TestKinds.Pseudostate = kind(counter.next(), TestKinds.Vertex);
-TestKinds.Initial = kind(counter.next(), TestKinds.Pseudostate);
-TestKinds.FinalState = kind(counter.next(), TestKinds.State);
-TestKinds.Choice = kind(counter.next(), TestKinds.Pseudostate);
-TestKinds.Junction = kind(counter.next(), TestKinds.Pseudostate);
-TestKinds.DeepHistory = kind(counter.next(), TestKinds.Pseudostate);
-TestKinds.ShallowHistory = kind(counter.next(), TestKinds.Pseudostate);
+TestKinds.Null = kind();
+TestKinds.Element = kind();
+TestKinds.Partial = kind(TestKinds.Element);
+TestKinds.Vertex = kind(TestKinds.Element);
+TestKinds.Constraint = kind(TestKinds.Element);
+TestKinds.Behavior = kind(TestKinds.Element);
+TestKinds.Namespace = kind(TestKinds.Element);
+TestKinds.Concurrent = kind(TestKinds.Behavior);
+TestKinds.Sequential = kind(TestKinds.Behavior);
+TestKinds.StateMachine = kind(TestKinds.Concurrent, TestKinds.Namespace);
+TestKinds.Attribute = kind(TestKinds.Element);
+TestKinds.State = kind(TestKinds.Vertex, TestKinds.Namespace);
+TestKinds.Model = kind(TestKinds.State);
+TestKinds.Transition = kind(TestKinds.Element);
+TestKinds.Internal = kind(TestKinds.Transition);
+TestKinds.External = kind(TestKinds.Transition);
+TestKinds.Local = kind(TestKinds.Transition);
+TestKinds.Self = kind(TestKinds.Transition);
+TestKinds.Event = kind(TestKinds.Element);
+TestKinds.CompletionEvent = kind(TestKinds.Event);
+TestKinds.ChangeEvent = kind(TestKinds.Event);
+TestKinds.ErrorEvent = kind(TestKinds.CompletionEvent);
+TestKinds.TimeEvent = kind(TestKinds.Event);
+TestKinds.CallEvent = kind(TestKinds.Event);
+TestKinds.Pseudostate = kind(TestKinds.Vertex);
+TestKinds.Initial = kind(TestKinds.Pseudostate);
+TestKinds.FinalState = kind(TestKinds.State);
+TestKinds.Choice = kind(TestKinds.Pseudostate);
+TestKinds.Junction = kind(TestKinds.Pseudostate);
+TestKinds.DeepHistory = kind(TestKinds.Pseudostate);
+TestKinds.ShallowHistory = kind(TestKinds.Pseudostate);
 
-console.log('=== KIND SYSTEM TESTS ===\n');
 
 function test(name, fn) {
     try {
