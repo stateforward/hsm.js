@@ -595,7 +595,7 @@ test("deferred events should be queued and reprocessed later", async function ()
   instance.dispatch({ name: "deferredEvent", kind: hsm.kinds.Event });
   assert.strictEqual(processedEvents.length, 0); // Not processed yet
   assert.strictEqual(instance.state(), "/deferredRuntimeTest/busy"); // Still in busy state
-  assert.strictEqual(sm.queue.len(), 1);
+  assert.strictEqual(sm._hsm.queue.len(), 1);
   // Transition to ready state - deferred event should be reprocessed
   instance.dispatch({ name: "finish", kind: hsm.kinds.Event });
 
@@ -657,7 +657,7 @@ test("hierarchical deferred events should inherit from parent states", async fun
   // Exit to ready state
   instance.dispatch({ name: "exit", kind: hsm.kinds.Event });
   await delay(10);
-  assert.strictEqual(sm.queue.len(), 0);
+  assert.strictEqual(sm._hsm.queue.len(), 0);
   assert.strictEqual(instance.state(), "/hierarchicalDeferredTest/ready");
   assert.strictEqual(processedEvents.length, 2);
   assert.ok(processedEvents.includes("parent-parentDeferred"));
@@ -708,7 +708,7 @@ test("non-deferred events should process normally even when some events are defe
   assert.strictEqual(processedEvents.length, 2);
   assert.strictEqual(processedEvents[0], "normalEvent");
   assert.strictEqual(processedEvents[1], "normalEvent");
-  assert.strictEqual(sm.queue.len(), 1);
+  assert.strictEqual(sm._hsm.queue.len(), 1);
   assert.strictEqual(sm.state(), '/mixedEventTest/working');
   // Transition to ready state
   sm.dispatch({ name: "finish", kind: hsm.kinds.Event });
@@ -2338,4 +2338,3 @@ test("every() should work correctly with internal transitions", async function (
   // Verify we're in the stopped state
   assert.strictEqual(machine.state(), "/multipleEveryInternal/stopped");
 });
-

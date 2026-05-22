@@ -141,14 +141,14 @@ test('Multiple deferred events processed in order', async function () {
   var sm = hsm.start(ctx, instance, model);
 
   // Send multiple deferred events
-  console.log('start instance.queue', sm.queue);
+  console.log('start instance.queue', sm._hsm.queue);
   instance.dispatch({ name: 'event2', kind: hsm.kinds.Event });
-  console.log('after event2 instance.queue', sm.queue);
+  console.log('after event2 instance.queue', sm._hsm.queue);
   instance.dispatch({ name: 'event1', kind: hsm.kinds.Event });
-  console.log('after event1 instance.queue', sm.queue);
+  console.log('after event1 instance.queue', sm._hsm.queue);
   instance.dispatch({ name: 'event3', kind: hsm.kinds.Event });
-  console.log('after event3 instance.queue', sm.queue);
-  console.log('end instance.queue', sm.queue);
+  console.log('after event3 instance.queue', sm._hsm.queue);
+  console.log('end instance.queue', sm._hsm.queue);
   // Should still be blocked
   assert.strictEqual(instance.state(), '/MultipleDeferredMachine/blocked');
   assert.deepStrictEqual(instance.log, []);

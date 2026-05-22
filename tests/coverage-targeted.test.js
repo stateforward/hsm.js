@@ -88,15 +88,15 @@ test('coverage: start overload, context wrappers, dispatch helpers, and stop lis
   );
 
   const sm = hsm.start(instance, model, { id: 'machine-1', name: 'CoverageHelpersName' });
-  assert.strictEqual(sm.id, 'machine-1');
-  assert.strictEqual(sm.name, 'CoverageHelpersName');
+  assert.strictEqual(instance._hsm.id, 'machine-1');
+  assert.strictEqual(instance._hsm.name, 'CoverageHelpersName');
   assert.strictEqual(hsm.get(instance, 'flag'), false);
   hsm.set(instance, 'flag', true);
   assert.strictEqual(hsm.get(instance, 'flag'), true);
   assert.strictEqual(hsm.call(instance, 'sum', 2, 4), 6);
 
   const ctx = instance.context();
-  assert.strictEqual(ctx.hsm, sm);
+  assert.strictEqual(ctx.hsm, instance._hsm);
   assert.strictEqual(hsm.id(instance), 'machine-1');
   assert.strictEqual(hsm.qualifiedName(instance), '/CoverageHelpers');
   assert.strictEqual(hsm.name(instance), 'CoverageHelpersName');

@@ -591,7 +591,7 @@ export { kinds };
  *   events: Record<string, Event<string, any>>,
  *   attributes: Record<string, { name: string, qualifiedName: string, hasDefault: boolean, defaultValue?: any }>,
  *   operations: Record<string, { name: string, qualifiedName: string, implementation: Function }>,
- *   partials: PartialFunction<Element>[]
+ *   partials: PartialElement<Element, Model>[]
  * }} Model
  */
 
@@ -648,7 +648,8 @@ export { kinds };
 
 /**
  * @template {Element} T
- * @typedef {(model: Model, elements: Element[]) => T | void} PartialFunction
+ * @template {Model} M
+ * @typedef {(model: M, elements: Element[]) => T | void} PartialElement
  */
 
 /**
@@ -710,9 +711,10 @@ export function event(name, schema) {
 
 /**
  * Apply partial functions to the model and stack
- * @param {Model} model - The model to apply the partial functions to
+ * @template {Model} M
+ * @param {M} model - The model to apply the partial functions to
  * @param {Element[]} stack - The stack of elements to apply the partial functions to
- * @param {PartialFunction<Element>[]} partials - The partial functions to apply
+ * @param {PartialElement<Element, M>[]} partials - The partial functions to apply
  */
 function apply(model, stack, partials) {
     for (var i = 0; i < partials.length; i++) {
@@ -863,20 +865,17 @@ Queue.prototype.pop = function () {
 
 /**
  * Push an event onto the queue
- * @param {...Event<string, any>} events - The events to push
+ * @param {Event<string, any>} event - The event to push
  * @returns {void}
  */
-Queue.prototype.push = function () {
+Queue.prototype.push = function (event) {
     if (this.profiler) {
         this.profiler.start('push');
     }
-    for (var i = 0; i < arguments.length; i++) {
-        var event = arguments[i];
-        if (isKind(event.kind, kinds.CompletionEvent)) {
-            this.front.push(event); // O(1)
-        } else {
-            this.back.push(event);
-        }
+    if (isKind(event.kind, kinds.CompletionEvent)) {
+        this.front.push(event); // O(1)
+    } else {
+        this.back.push(event);
     }
     if (this.profiler) {
         this.profiler.end('push');
@@ -1127,6 +1126,7 @@ Instance.prototype.takeSnapshot = function () {
  * @typedef {Object} Config
  * @property {string} [id] - The ID of the instance
  * @property {string} [name] - The name of the instance
+ * @property {Queue} [queue] - Runtime event queue
  */
 
 /**
@@ -1156,7 +1156,7 @@ function HSM(ctxOrInstance, instanceOrModel, maybeModelOrConfig, maybeConfig) {
     /** @type {Vertex|Model} */
     this.currentState = /** @type {any} */ (maybeModelOrConfig); // Model acts as root state
     /** @type {Queue} */
-    this.queue = new Queue();
+    this.queue = (maybeConfig && maybeConfig.queue) || new Queue();
     /** @type {Object<string, Active>} */
     this.active = {}; // Use object instead of Map for Espruino compatibility
     /** @type {boolean} */
@@ -1813,7 +1813,7 @@ function find(stack) {
  * @param {T} instance - The instance to start
  * @param {Model} model - The state machine model
  * @param {Config} [maybeConfig] - The configuration
- * @returns {T} The HSM controller
+ * @returns {T} The started instance
  */
 export function start(ctx, instance, model, maybeConfig) {
     if (!(ctx instanceof Context)) {
@@ -1824,7 +1824,7 @@ export function start(ctx, instance, model, maybeConfig) {
     }
     var sm = new HSM(ctx, instance, model, maybeConfig);
     sm.start();
-    return sm;
+    return instance;
 }
 
 /**
@@ -1841,12 +1841,13 @@ export function stop(instance) {
 
 /**
  * Create a state partial function
+ * @template {Model} M
  * @param {string} name - State name
- * @param {...PartialFunction<Element>[]} partials - Nested partials
- * @returns {PartialFunction<State>} State partial function
+ * @param {...PartialElement<Element, M>} partials - Nested partials
+ * @returns {PartialElement<State, M>} State partial function
  */
 export function state(name) {
-    /** @type {PartialFunction<Transition|Vertex>[]} */
+    /** @type {PartialElement<Transition|Vertex, M>[]} */
     var partials = slice(arguments, 1);
     return function (model, stack) {
         /** @type {State} */
@@ -1877,12 +1878,13 @@ export function state(name) {
 
 /**
  * Create an initial state partial function
- * @param {string|PartialFunction<Element>} elementOrName - Initial name or partial element  
- * @param {...PartialFunction<Element>[]} partials - Additional partials
- * @returns {PartialFunction<Transition>} Initial partial function
+ * @template {Model} M
+ * @param {string|PartialElement<Element, M>} elementOrName - Initial name or partial element  
+ * @param {...PartialElement<Element, M>} partials - Additional partials
+ * @returns {PartialElement<Transition, M>} Initial partial function
  */
 export function initial(elementOrName) {
-    /** @type {PartialFunction<Element>[]} */
+    /** @type {PartialElement<Element, M>[]} */
     var partials = slice(arguments, 1);
 
     var name = '.initial';
@@ -1922,11 +1924,12 @@ export function initial(elementOrName) {
 
 /**
  * Create a transition partial function
- * @param {...PartialFunction<Element>} partials - Transition configuration partials
- * @returns {PartialFunction<Transition>} Transition partial function
+ * @template {Model} M
+ * @param {...PartialElement<Element, M>} partials - Transition configuration partials
+ * @returns {PartialElement<Transition, M>} Transition partial function
  */
 export function transition() {
-    /** @type {PartialFunction<Element>[]} */
+    /** @type {PartialElement<Element, M>[]} */
     var partials = slice(arguments, 0);
 
     return function (model, stack) {
@@ -2026,7 +2029,7 @@ export function transition() {
 /**
  * Set transition source
  * @param {Path} name - Source name
- * @returns {PartialFunction<Transition>} Source partial function
+ * @returns {PartialElement<Transition>} Source partial function
  */
 export function source(name) {
     return function (model, stack) {
@@ -2049,7 +2052,7 @@ export function source(name) {
 /**
  * Set transition target
  * @param {Path} name - Target name
- * @returns {PartialFunction<Transition>} Target partial function
+ * @returns {PartialElement<Transition>} Target partial function
  */
 export function target(name) {
     return function (model, stack) {
@@ -2072,7 +2075,7 @@ export function target(name) {
 /**
  * Add event trigger to transition
  * @param {Event<string, any>|string} event - Event or event name
- * @returns {PartialFunction<Transition>} On partial function
+ * @returns {PartialElement<Transition>} On partial function
  */
 export function on(event) {
     return function (model, stack) {
@@ -2090,7 +2093,7 @@ export function on(event) {
 /**
  * Add an attribute-change trigger to a transition.
  * @param {string} name
- * @returns {PartialFunction<Transition>}
+ * @returns {PartialElement<Transition>}
  */
 export function onSet(name) {
     return function (model, stack) {
@@ -2116,7 +2119,7 @@ export function onSet(name) {
 /**
  * Add a named operation trigger to a transition.
  * @param {string} name
- * @returns {PartialFunction<Transition>}
+ * @returns {PartialElement<Transition>}
  */
 export function onCall(name) {
     return function (model, stack) {
@@ -2140,7 +2143,7 @@ export function onCall(name) {
 /**
  * Overloaded change/signal trigger.
  * @param {string|function(Context, Instance, Event<string, any>): any} expr
- * @returns {PartialFunction<Transition>}
+ * @returns {PartialElement<Transition>}
  */
 export function when(expr) {
     if (typeof expr === 'string') {
@@ -2218,7 +2221,7 @@ function pushBehaviors(namePrefix, kind, namesList, model, operations) {
  * Add entry action to state
  * @template {Instance} T
  * @param {...Operation<T>} operations - Entry operations
- * @returns {PartialFunction<State>} Entry partial function
+ * @returns {PartialElement<State>} Entry partial function
  */
 export function entry() {
     var operations = /** @type {Operation<T>[]} */ (slice(arguments, 0));
@@ -2233,7 +2236,7 @@ export function entry() {
  * Add exit action to state
  * @template {Instance} T
  * @param {...Operation<T>} operations - Exit operations
- * @returns {PartialFunction<State>} Exit partial function
+ * @returns {PartialElement<State>} Exit partial function
  */
 export function exit() {
     var operations = /** @type {Operation<T>[]} */ (slice(arguments, 0));
@@ -2248,7 +2251,7 @@ export function exit() {
  * Add activity to state (can be asynchronous)
  * @template {Instance} T
  * @param {...Operation<T>} operations - Activity operations
- * @returns {PartialFunction<State>} Activity partial function
+ * @returns {PartialElement<State>} Activity partial function
  */
 export function activity() {
     var operations = /** @type {Operation<T>[]} */ (slice(arguments, 0));
@@ -2263,7 +2266,7 @@ export function activity() {
  * Add effect to transition
  * @template {Instance} T
  * @param {...Operation<T>} operations - Effect operations
- * @returns {PartialFunction<Transition>} Effect partial function
+ * @returns {PartialElement<Transition>} Effect partial function
  */
 export function effect() {
     var operations = /** @type {Operation<T>[]} */ (slice(arguments, 0));
@@ -2278,7 +2281,7 @@ export function effect() {
  * Add guard condition to transition (synchronous)
  * @template {Instance} T
  * @param {Expression<T>} expression - Guard expression function
- * @returns {PartialFunction<Transition>} Guard partial function
+ * @returns {PartialElement<Transition>} Guard partial function
  */
 export function guard(expression) {
     return function (model, stack) {
@@ -2301,7 +2304,7 @@ export function guard(expression) {
  * Define a model-level attribute.
  * @param {string} name
  * @param {any} [maybeDefault]
- * @returns {PartialFunction<Element>}
+ * @returns {PartialElement<Element>}
  */
 export function attribute(name, maybeDefault) {
     var hasDefault = arguments.length > 1;
@@ -2320,7 +2323,7 @@ export function attribute(name, maybeDefault) {
  * Define a named operation callable by behaviors and OnCall.
  * @param {string} name
  * @param {Function} implementation
- * @returns {PartialFunction<Element>}
+ * @returns {PartialElement<Element>}
  */
 export function operation(name, implementation) {
     return function (model) {
@@ -2337,7 +2340,7 @@ export function operation(name, implementation) {
  * Add a time-based transition that fires once after a duration (can be asynchronous)
  * @template {Instance} T
  * @param {TimeExpression<T>} duration - Duration expression (synchronous, returns number)
- * @returns {PartialFunction<Transition>} After partial function
+ * @returns {PartialElement<Transition>} After partial function
  */
 export function after(duration) {
     return function (model, stack) {
@@ -2395,7 +2398,7 @@ export function after(duration) {
  * Add a periodic timer transition (can be asynchronous)
  * @template {Instance} T
  * @param {TimeExpression<T>} duration - Duration expression (synchronous, returns number)
- * @returns {PartialFunction<Transition>} Every partial function
+ * @returns {PartialElement<Transition>} Every partial function
  */
 export function every(duration) {
     return function (model, stack) {
@@ -2456,7 +2459,7 @@ export function every(duration) {
  * Add an absolute time-point transition.
  * @template {Instance} T
  * @param {string|function(Context, T, Event<string, any>): number|Date} timepoint
- * @returns {PartialFunction<Transition>}
+ * @returns {PartialElement<Transition>}
  */
 export function at(timepoint) {
     return function (model, stack) {
@@ -2504,7 +2507,7 @@ export function at(timepoint) {
 /**
  * Add deferred events to a state 
  * @param {...string} eventNames - Event names to defer
- * @returns {PartialFunction<State>} Defer partial function
+ * @returns {PartialElement<State>} Defer partial function
  */
 export function defer() {
     var eventNames = slice(arguments, 0);
@@ -2523,7 +2526,7 @@ export function defer() {
 /**
  * Create a final state
  * @param {string} name - Name of the final state
- * @returns {PartialFunction<State>} Final state partial function
+ * @returns {PartialElement<State>} Final state partial function
  */
 export function final(name) {
     return function (model, stack) {
@@ -2550,10 +2553,13 @@ export function final(name) {
 
 /**
  * Create a shallow history pseudostate.
- * @param {string|PartialFunction<Element>} elementOrName
- * @returns {PartialFunction<Vertex>}
+ * @template {Model} M
+ * @param {string|PartialElement<Element, M>} elementOrName
+ * @param {...PartialElement<Element, M>} partials
+ * @returns {PartialElement<Vertex, M>}
  */
 export function shallowHistory(elementOrName) {
+    /** @type {PartialElement<Element, M>[]} */
     var partials = slice(arguments, 1);
     var name = '';
     if (typeof elementOrName === 'string') {
@@ -2582,10 +2588,13 @@ export function shallowHistory(elementOrName) {
 
 /**
  * Create a deep history pseudostate.
- * @param {string|PartialFunction<Element>} elementOrName
- * @returns {PartialFunction<Vertex>}
+ * @template {Model} M
+ * @param {string|PartialElement<Element, M>} elementOrName
+ * @param {...PartialElement<Element, M>} partials
+ * @returns {PartialElement<Vertex, M>}
  */
 export function deepHistory(elementOrName) {
+    /** @type {PartialElement<Element, M>[]} */
     var partials = slice(arguments, 1);
     var name = '';
     if (typeof elementOrName === 'string') {
@@ -2614,11 +2623,13 @@ export function deepHistory(elementOrName) {
 
 /**
  * Create a choice pseudostate that enables dynamic branching based on guard conditions
- * @param {string|PartialFunction<Element>} elementOrName - Choice name or partial element
- * @param {...PartialFunction<Element>[]} partials - Additional partials (transitions)
- * @returns {PartialFunction<Vertex>} Choice partial function
+ * @template {Model} M
+ * @param {string|PartialElement<Element, M>} elementOrName - Choice name or partial element
+ * @param {...PartialElement<Element, M>} partials - Additional partials (transitions)
+ * @returns {PartialElement<Vertex, M>} Choice partial function
  */
 export function choice(elementOrName) {
+    /** @type {PartialElement<Element, M>[]} */
     var partials = slice(arguments, 1);
     var name = '';
 
@@ -2678,15 +2689,16 @@ export function dispatchAll(ctx, event) {
 
 /**
  * Define a state machine model with optimized transition table
+ * @template {Model} T
  * @param {string} name - Model name
- * @param {...PartialFunction<Element>[]} partials - Partial functions to apply
- * @returns {Model} The defined model
+ * @param {...PartialElement<Element, T>} partials - Partial functions to apply
+ * @returns {T} The defined model
  */
 export function define(name) {
-    /** @type {PartialFunction<Element>[]} */
+    /** @type {PartialElement<Element, T>[]} */
     var partials = slice(arguments, 1);
-    /** @type {Model} */
-    var model = {
+    /** @type {T} */
+    var model = /** @type {T} */ ({
         qualifiedName: join('/', name),
         kind: kinds.Model,
         members: /** @type {Record<Path, Element>} */ ({}),
@@ -2701,8 +2713,8 @@ export function define(name) {
         events: {},
         attributes: {},
         operations: {},
-        partials: /** @type {PartialFunction<Element>[]} */ ([])
-    };
+        partials: /** @type {PartialElement<Element, Model>[]} */ ([])
+    });
     model.members[model.qualifiedName] = model;
     registerEvent(model, InitialEvent);
     registerEvent(model, FinalEvent);
@@ -3014,4 +3026,4 @@ export const ID = id;
 export const QualifiedName = qualifiedName;
 export const Name = name;
 export const Clock = clock;
-export { Profiler, Queue, apply, find };
+export { HSM, Profiler, Queue, apply, find };

@@ -10,7 +10,7 @@ export interface Event<N extends string = string, T = any> {
   id?: string;
 }
 
-export interface SnapshotEventDetail {
+export interface EventSnapshot {
   event: string;
   target?: string;
   guard: boolean;
@@ -23,7 +23,7 @@ export interface Snapshot {
   state: string;
   attributes: Record<string, any>;
   queueLen: number;
-  events: SnapshotEventDetail[];
+  events: EventSnapshot[];
 }
 
 export interface ClockConfig {
@@ -111,7 +111,7 @@ export class Group {
   takeSnapshot(): Snapshot;
 }
 
-export type PartialFunction<T = any> = (model: Model, stack: any[]) => T | void;
+export type PartialElement<T = any, M extends Model = Model> = (model: M, stack: any[]) => T | void;
 export type Operation<T extends Instance = Instance> = (ctx: Context, instance: T, event: Event) => any;
 export type GuardExpression<T extends Instance = Instance> = (ctx: Context, instance: T, event: Event) => boolean;
 
@@ -171,8 +171,8 @@ export function isAbsolute(path: string): boolean;
 export function lca(a: string, b: string): string;
 export function isAncestor(ancestor: string, descendant: string): boolean;
 
-export function start<T extends Instance>(instance: T, model: Model, config?: Config): HSM<T>;
-export function start<T extends Instance>(ctx: Context, instance: T, model: Model, config?: Config): HSM<T>;
+export function start<T extends Instance>(instance: T, model: Model, config?: Config): T;
+export function start<T extends Instance>(ctx: Context, instance: T, model: Model, config?: Config): T;
 export function stop(instance: Instance): void;
 export function restart(instance: Instance, data?: any): void;
 export function dispatchAll(ctx: Context, event: Event): void;
@@ -195,33 +195,33 @@ export function qualifiedName(instance: Instance): string;
 export function name(instance: Instance): string;
 export function clock(instance: Instance | Group | null | undefined): Required<ClockConfig>;
 
-export function state(name: string, ...partials: PartialFunction[]): PartialFunction;
-export function initial(...partials: PartialFunction[]): PartialFunction;
-export function transition(...partials: PartialFunction[]): PartialFunction;
+export function state<M extends Model = Model>(name: string, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
+export function initial<M extends Model = Model>(elementOrName?: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
+export function transition<M extends Model = Model>(...partials: PartialElement<any, M>[]): PartialElement<any, M>;
 export function event<N extends string = string>(name: N, schema?: any): Event<N>;
-export function source(name: string): PartialFunction;
-export function target(name: string): PartialFunction;
-export function on(event: Event | string): PartialFunction;
-export function onSet(name: string): PartialFunction;
-export function onCall(name: string): PartialFunction;
-export function when(name: string): PartialFunction;
-export function when(expr: (ctx: Context, instance: Instance, event: Event) => any): PartialFunction;
-export function entry(...operations: Array<string | Operation>): PartialFunction;
-export function exit(...operations: Array<string | Operation>): PartialFunction;
-export function activity(...operations: Array<string | Operation>): PartialFunction;
-export function effect(...operations: Array<string | Operation>): PartialFunction;
-export function guard(expression: string | GuardExpression): PartialFunction;
-export function after(duration: string | ((ctx: Context, instance: Instance, event: Event) => number)): PartialFunction;
-export function every(duration: string | ((ctx: Context, instance: Instance, event: Event) => number)): PartialFunction;
-export function at(timepoint: string | ((ctx: Context, instance: Instance, event: Event) => number | Date)): PartialFunction;
-export function defer(...eventNames: string[]): PartialFunction;
-export function final(name: string): PartialFunction;
-export function choice(name: string, ...partials: PartialFunction[]): PartialFunction;
-export function shallowHistory(name: string, ...partials: PartialFunction[]): PartialFunction;
-export function deepHistory(name: string, ...partials: PartialFunction[]): PartialFunction;
-export function define(name: string, ...partials: PartialFunction[]): Model;
-export function attribute(name: string, defaultValue?: any): PartialFunction;
-export function operation(name: string, implementation: Function): PartialFunction;
+export function source(name: string): PartialElement;
+export function target(name: string): PartialElement;
+export function on(event: Event | string): PartialElement;
+export function onSet(name: string): PartialElement;
+export function onCall(name: string): PartialElement;
+export function when(name: string): PartialElement;
+export function when(expr: (ctx: Context, instance: Instance, event: Event) => any): PartialElement;
+export function entry(...operations: Array<string | Operation>): PartialElement;
+export function exit(...operations: Array<string | Operation>): PartialElement;
+export function activity(...operations: Array<string | Operation>): PartialElement;
+export function effect(...operations: Array<string | Operation>): PartialElement;
+export function guard(expression: string | GuardExpression): PartialElement;
+export function after(duration: string | ((ctx: Context, instance: Instance, event: Event) => number)): PartialElement;
+export function every(duration: string | ((ctx: Context, instance: Instance, event: Event) => number)): PartialElement;
+export function at(timepoint: string | ((ctx: Context, instance: Instance, event: Event) => number | Date)): PartialElement;
+export function defer(...eventNames: string[]): PartialElement;
+export function final(name: string): PartialElement;
+export function choice<M extends Model = Model>(elementOrName: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
+export function shallowHistory<M extends Model = Model>(elementOrName: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
+export function deepHistory<M extends Model = Model>(elementOrName: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
+export function define<T extends Model = Model>(name: string, ...partials: PartialElement<any, T>[]): T;
+export function attribute(name: string, defaultValue?: any): PartialElement;
+export function operation(name: string, implementation: Function): PartialElement;
 export function makeGroup(...instances: Instance[]): Group;
 
 export const Define: typeof define;

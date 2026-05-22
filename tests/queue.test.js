@@ -4,6 +4,12 @@ const hsm = require('../src/hsm.js');
 
 const { Queue, Kinds, InitialEvent, FinalEvent, ErrorEvent } = hsm;
 
+function pushAll(queue, events) {
+    for (const event of events) {
+        queue.push(event);
+    }
+}
+
 test.describe('Queue', () => {
     test('should create an empty queue', () => {
         const queue = new Queue();
@@ -17,7 +23,7 @@ test.describe('Queue', () => {
         const event2 = { kind: Kinds.Event, name: 'event2' };
         const event3 = { kind: Kinds.Event, name: 'event3' };
 
-        queue.push(event1, event2, event3);
+        pushAll(queue, [event1, event2, event3]);
         assert.strictEqual(queue.len(), 3);
 
         assert.strictEqual(queue.pop(), event1);
@@ -32,7 +38,7 @@ test.describe('Queue', () => {
         const completion2 = { kind: Kinds.CompletionEvent, name: 'completion2' };
         const completion3 = { kind: Kinds.CompletionEvent, name: 'completion3' };
 
-        queue.push(completion1, completion2, completion3);
+        pushAll(queue, [completion1, completion2, completion3]);
         assert.strictEqual(queue.len(), 3);
 
         // LIFO order for completion events
@@ -50,9 +56,9 @@ test.describe('Queue', () => {
         const completion2 = { kind: Kinds.CompletionEvent, name: 'completion2' };
 
         // Push regular events first
-        queue.push(event1, event2);
+        pushAll(queue, [event1, event2]);
         // Then push completion events
-        queue.push(completion1, completion2);
+        pushAll(queue, [completion1, completion2]);
 
         // Completion events should be processed first (LIFO)
         assert.strictEqual(queue.pop(), completion2);
@@ -62,14 +68,14 @@ test.describe('Queue', () => {
         assert.strictEqual(queue.pop(), event2);
     });
 
-    test('should handle mixed event types in single push', () => {
+    test('should handle mixed event types across sequential pushes', () => {
         const queue = new Queue();
         const event1 = { kind: Kinds.Event, name: 'event1' };
         const completion1 = { kind: Kinds.CompletionEvent, name: 'completion1' };
         const event2 = { kind: Kinds.Event, name: 'event2' };
         const completion2 = { kind: Kinds.CompletionEvent, name: 'completion2' };
 
-        queue.push(event1, completion1, event2, completion2);
+        pushAll(queue, [event1, completion1, event2, completion2]);
 
         // Completion events first (LIFO)
         assert.strictEqual(queue.pop(), completion2);
@@ -86,7 +92,7 @@ test.describe('Queue', () => {
         const event3 = { kind: Kinds.Event, name: 'event3' };
 
         // Push and pop to move backHead
-        queue.push(event1, event2);
+        pushAll(queue, [event1, event2]);
         assert.strictEqual(queue.backHead, 0);
         assert.strictEqual(queue.back.length, 2);
         assert.strictEqual(queue.len(), 2);
@@ -133,8 +139,8 @@ test.describe('Queue', () => {
         }
 
         // Push all events
-        queue.push(...events);
-        queue.push(...completions);
+        pushAll(queue, events);
+        pushAll(queue, completions);
 
         assert.strictEqual(queue.len(), 200);
 
@@ -166,9 +172,8 @@ test.describe('Queue', () => {
         assert.strictEqual(results.pop.count, 1);
     });
 
-    test('should handle empty push gracefully', () => {
+    test('should start empty without pushes', () => {
         const queue = new Queue();
-        queue.push(); // No arguments
         assert.strictEqual(queue.len(), 0);
     });
 
@@ -183,7 +188,8 @@ test.describe('Queue', () => {
         queue.push(event1);
         assert.strictEqual(queue.len(), 1);
 
-        queue.push(event2, completion);
+        queue.push(event2);
+        queue.push(completion);
         assert.strictEqual(queue.len(), 3);
 
         queue.pop();
@@ -228,11 +234,11 @@ test.describe('Queue', () => {
         const queue = new Queue();
 
         // Push some events
-        queue.push(
+        pushAll(queue, [
             { kind: Kinds.Event, name: 'event1' },
             { kind: Kinds.Event, name: 'event2' },
             { kind: Kinds.Event, name: 'event3' }
-        );
+        ]);
 
         assert.strictEqual(queue.back.length, 3);
         assert.strictEqual(queue.backHead, 0);
@@ -253,7 +259,7 @@ test.describe('Queue', () => {
         const regularEvent = { kind: Kinds.Event, name: 'regular' };
         const errorEvent = { kind: Kinds.ErrorEvent, name: 'error' };
 
-        queue.push(regularEvent, errorEvent);
+        pushAll(queue, [regularEvent, errorEvent]);
 
         // Error event should be processed first (it's a completion event)
         assert.strictEqual(queue.pop(), errorEvent);
@@ -265,7 +271,7 @@ test.describe('Queue', () => {
         const timeEvent = { kind: Kinds.TimeEvent, name: 'timer' };
         const regularEvent = { kind: Kinds.Event, name: 'regular' };
 
-        queue.push(timeEvent, regularEvent);
+        pushAll(queue, [timeEvent, regularEvent]);
 
         // Both are regular events, FIFO order
         assert.strictEqual(queue.pop(), timeEvent);
@@ -355,17 +361,17 @@ test.describe('Queue', () => {
 
         // Create a pattern that simulates concurrent access
         // Push multiple events, pop one, push more, etc.
-        queue.push(
+        pushAll(queue, [
             { kind: Kinds.Event, name: 'e1' },
             { kind: Kinds.CompletionEvent, name: 'c1' }
-        );
+        ]);
         results.push(queue.pop()); // Should be c1
 
-        queue.push(
+        pushAll(queue, [
             { kind: Kinds.Event, name: 'e2' },
             { kind: Kinds.CompletionEvent, name: 'c2' },
             { kind: Kinds.Event, name: 'e3' }
-        );
+        ]);
         results.push(queue.pop()); // Should be c2
         results.push(queue.pop()); // Should be e1
 
