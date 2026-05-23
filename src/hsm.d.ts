@@ -39,6 +39,7 @@ export interface Config {
   name?: string;
   data?: any;
   clock?: ClockConfig;
+  queue?: QueueLike;
 }
 
 export class Context {
@@ -81,13 +82,21 @@ export class HSM<T extends Instance = Instance> {
   takeSnapshot(): Snapshot;
 }
 
+export interface QueueLike {
+  len(): number;
+  pop(): Event | undefined;
+  push(event: Event): void;
+}
+
 export class Queue {
   backHead: number;
   back: Array<Event | undefined>;
   front: Event[];
+  fifo?: QueueLike;
+  constructor(profilerOrFifo?: any, fifo?: QueueLike);
   len(): number;
   pop(): Event | undefined;
-  push(...events: Event[]): void;
+  push(event: Event): void;
 }
 
 export class Profiler {

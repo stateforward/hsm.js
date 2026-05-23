@@ -1,6 +1,6 @@
 {
     "name": "@stateforward/hsm",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "description": "High-performance Hierarchical State Machine implementation optimized for JavaScript and Espruino",
     "main": "src/hsm.js",
     "types": "src/hsm.d.ts",

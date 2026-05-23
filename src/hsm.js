@@ -817,13 +817,22 @@ export function lca(a, b) {
 
 
 /**
- * Event queue for managing completion and regular events
+ * Event queue for managing runtime completion events and regular events.
+ * Completion events are always retained in the runtime-owned LIFO side;
+ * the optional regular queue receives only non-completion events.
  * @constructor
  * @param {Profiler} [profiler] - Optional profiler instance
+ * @param {{push: function(Event<string, any>): void, pop: function(): (Event<string, any>|undefined), len: function(): number}} [fifo] - Optional regular event queue
  */
-function Queue(profiler) {
+function Queue(profiler, fifo) {
     /** @type {Profiler|undefined} */
     this.profiler = profiler;
+    if (profiler && typeof profiler.push === 'function') {
+        fifo = /** @type {any} */ (profiler);
+        this.profiler = undefined;
+    }
+    /** @type {{push: function(Event<string, any>): void, pop: function(): (Event<string, any>|undefined), len: function(): number}|undefined} */
+    this.fifo = fifo;
     /** @type {Array<Event<string, any>>} */
     this.front = []; // For completion events, acts as a stack (LIFO)
     /** @type {Array<Event<string, any>>} */
@@ -832,7 +841,7 @@ function Queue(profiler) {
 }
 
 Queue.prototype.len = function () {
-    return this.front.length + (this.back.length - this.backHead);
+    return this.front.length + (this.fifo ? this.fifo.len() : this.back.length - this.backHead);
 };
 
 /**
@@ -846,6 +855,8 @@ Queue.prototype.pop = function () {
     var event;
     if (this.front.length > 0) {
         event = this.front.pop(); // O(1) for completion events
+    } else if (this.fifo) {
+        event = this.fifo.pop();
     } else if (this.backHead < this.back.length) {
         event = this.back[this.backHead];
         this.back[this.backHead] = undefined; // Help GC
@@ -874,6 +885,8 @@ Queue.prototype.push = function (event) {
     }
     if (isKind(event.kind, kinds.CompletionEvent)) {
         this.front.push(event); // O(1)
+    } else if (this.fifo) {
+        this.fifo.push(event);
     } else {
         this.back.push(event);
     }
@@ -1156,7 +1169,7 @@ function HSM(ctxOrInstance, instanceOrModel, maybeModelOrConfig, maybeConfig) {
     /** @type {Vertex|Model} */
     this.currentState = /** @type {any} */ (maybeModelOrConfig); // Model acts as root state
     /** @type {Queue} */
-    this.queue = (maybeConfig && maybeConfig.queue) || new Queue();
+    this.queue = new Queue((maybeConfig && maybeConfig.queue) || undefined);
     /** @type {Object<string, Active>} */
     this.active = {}; // Use object instead of Map for Espruino compatibility
     /** @type {boolean} */

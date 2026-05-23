@@ -68,6 +68,35 @@ test.describe('Queue', () => {
         assert.strictEqual(queue.pop(), event2);
     });
 
+    test('should keep completion events out of a custom regular queue', () => {
+        const regularEvents = [];
+        const pushed = [];
+        const regularQueue = {
+            push(event) {
+                pushed.push(event.name);
+                regularEvents.push(event);
+            },
+            pop() {
+                return regularEvents.shift();
+            },
+            len() {
+                return regularEvents.length;
+            },
+        };
+        const queue = new Queue(regularQueue);
+        const regular = { kind: Kinds.Event, name: 'regular' };
+        const completion = { kind: Kinds.CompletionEvent, name: 'completion' };
+
+        queue.push(regular);
+        queue.push(completion);
+
+        assert.deepStrictEqual(pushed, ['regular']);
+        assert.strictEqual(queue.len(), 2);
+        assert.strictEqual(queue.pop(), completion);
+        assert.strictEqual(queue.pop(), regular);
+        assert.strictEqual(queue.pop(), undefined);
+    });
+
     test('should handle mixed event types across sequential pushes', () => {
         const queue = new Queue();
         const event1 = { kind: Kinds.Event, name: 'event1' };
