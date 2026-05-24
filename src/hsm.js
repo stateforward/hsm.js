@@ -841,7 +841,11 @@ function Queue(profiler, fifo) {
 }
 
 Queue.prototype.len = function () {
-    return this.front.length + (this.fifo ? this.fifo.len() : this.back.length - this.backHead);
+    if (this.fifo) {
+        var lenOrError = this.fifo.len();
+        return typeof lenOrError === 'number' ? this.front.length + lenOrError : lenOrError;
+    }
+    return this.front.length + (this.back.length - this.backHead);
 };
 
 /**
@@ -886,7 +890,7 @@ Queue.prototype.push = function (event) {
     if (isKind(event.kind, kinds.CompletionEvent)) {
         this.front.push(event); // O(1)
     } else if (this.fifo) {
-        this.fifo.push(event);
+        return this.fifo.push(event);
     } else {
         this.back.push(event);
     }
@@ -894,6 +898,16 @@ Queue.prototype.push = function (event) {
         this.profiler.end('push');
     }
 };
+
+function isQueueError(value) {
+    if (value === undefined || value === null) {
+        return false;
+    }
+    if (typeof value !== 'object') {
+        return true;
+    }
+    return !('name' in value) || !('kind' in value);
+}
 
 /**
  * Build a transition lookup table for O(1) event dispatch
@@ -1359,7 +1373,7 @@ HSM.prototype.takeSnapshot = function () {
         qualifiedName: this.model.qualifiedName,
         state: currentStateName,
         attributes: Object.assign({}, this.attributes),
-        queueLen: this.queue.len(),
+        queueLen: this.len(),
         events: events
     };
 };
@@ -1412,7 +1426,7 @@ HSM.prototype.dispatch = function (event) {
     if (!event.kind) {
         event.kind = kinds.Event;
     }
-    this.queue.push(event);
+    this.push(event);
     this.notify('dispatched', event.name);
 
     if (this.processing) {
@@ -1431,10 +1445,10 @@ HSM.prototype.dispatch = function (event) {
  */
 HSM.prototype.process = function () {
     /** @type {Array<Event<string, any>>} */
-    var deferred = new Array(this.queue.len() + 1);
+    var deferred = new Array(this.len() + 1);
     var deferredCount = 0;
 
-    var event = this.queue.pop();
+    var event = this.pop();
     while (event) { // Loop while there are events to process
         var currentStateName = this.currentState.qualifiedName;
         var eventName = event.name;
@@ -1445,7 +1459,7 @@ HSM.prototype.process = function () {
 
         if (isDeferred) {
             deferred[deferredCount++] = event;
-            event = this.queue.pop();
+            event = this.pop();
             continue;
         }
 
@@ -1479,7 +1493,7 @@ HSM.prototype.process = function () {
                 if (nextState.qualifiedName !== this.currentState.qualifiedName) {
                     this.currentState = nextState;
                     for (var i = 0; i < deferredCount; i++) {
-                        this.queue.push(deferred[i]);
+                        this.push(deferred[i]);
                     }
                     deferredCount = 0;
                 }
@@ -1489,16 +1503,44 @@ HSM.prototype.process = function () {
 
         this.notify('processed', event.name);
         // Get next event from queue
-        event = this.queue.pop();
+        event = this.pop();
     }
 
     // Re-queue deferred events after all current events are processed
     for (var i = 0; i < deferredCount; i++) {
-        this.queue.push(deferred[i]);
+        this.push(deferred[i]);
     }
 
     this.processing = false; // Mark as not processing
     this.notify('processed', '__next__');
+};
+
+HSM.prototype.push = function (event) {
+    var error = this.queue.push(event);
+    if (error && !isKind(event.kind, kinds.ErrorEvent)) {
+        this.queue.push(Object.create(ErrorEvent, { data: { value: error } }));
+    }
+};
+
+HSM.prototype.pop = function () {
+    while (true) {
+        var eventOrError = this.queue.pop();
+        if (!isQueueError(eventOrError)) {
+            return eventOrError;
+        }
+        this.queue.push(Object.create(ErrorEvent, { data: { value: eventOrError } }));
+    }
+};
+
+HSM.prototype.len = function () {
+    var lenOrError = this.queue.len();
+    if (typeof lenOrError === 'number') {
+        return lenOrError;
+    }
+    if (lenOrError) {
+        this.queue.push(Object.create(ErrorEvent, { data: { value: lenOrError } }));
+    }
+    return 0;
 };
 
 

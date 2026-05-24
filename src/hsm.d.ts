@@ -83,9 +83,9 @@ export class HSM<T extends Instance = Instance> {
 }
 
 export interface QueueLike {
-  len(): number;
-  pop(): Event | undefined;
-  push(event: Event): void;
+  len(): number | unknown;
+  pop(): Event | undefined | unknown;
+  push(event: Event): void | unknown;
 }
 
 export class Queue {
@@ -94,9 +94,9 @@ export class Queue {
   front: Event[];
   fifo?: QueueLike;
   constructor(profilerOrFifo?: any, fifo?: QueueLike);
-  len(): number;
-  pop(): Event | undefined;
-  push(event: Event): void;
+  len(): number | unknown;
+  pop(): Event | undefined | unknown;
+  push(event: Event): void | unknown;
 }
 
 export class Profiler {

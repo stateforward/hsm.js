@@ -72,6 +72,44 @@ test('Error event from activity exception', async function () {
   hsm.stop(instance);
 });
 
+test('Custom queue push error dispatches error event', async function () {
+  const instance = new ErrorInstance();
+  const queueError = new Error('queue push failed');
+  const customQueue = {
+    push() {
+      return queueError;
+    },
+    pop() {
+      return undefined;
+    },
+    len() {
+      return 0;
+    },
+  };
+
+  const model = hsm.define('QueuePushErrorMachine',
+    hsm.initial(hsm.target('idle')),
+    hsm.state('idle',
+      hsm.transition(
+        hsm.on('hsm_error'),
+        hsm.target('../failed'),
+        hsm.effect(function (ctx, inst, event) {
+          inst.data.errorEvent = event;
+        })
+      )
+    ),
+    hsm.state('failed')
+  );
+
+  const ctx = new hsm.Context();
+  hsm.start(ctx, instance, model, { queue: customQueue });
+  instance.dispatch({ name: 'go', kind: hsm.kinds.Event });
+  await delay(20);
+
+  assert.strictEqual(instance.state(), '/QueuePushErrorMachine/failed');
+  assert.strictEqual(instance.data.errorEvent.data, queueError);
+});
+
 test('Error event handled at different hierarchy levels', async function () {
   const instance = new ErrorInstance();
 
