@@ -97,6 +97,17 @@ test.describe('Queue', () => {
         assert.strictEqual(queue.pop(), undefined);
     });
 
+    test('should reject partial custom queue hooks', () => {
+        assert.throws(
+            () => new Queue({ push() {} }),
+            /Queue requires complete Push\/Pop\/Len or push\/pop\/len hooks/
+        );
+        assert.throws(
+            () => new Queue({ Push() {}, Pop() { return undefined; } }),
+            /Queue requires complete Push\/Pop\/Len or push\/pop\/len hooks/
+        );
+    });
+
     test('should handle mixed event types across sequential pushes', () => {
         const queue = new Queue();
         const event1 = { kind: Kinds.Event, name: 'event1' };

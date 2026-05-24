@@ -42,11 +42,17 @@ test('coverage: orphan instance fallbacks and helper no-op wrappers', async func
   assert.strictEqual(orphan.call('missing'), undefined);
   assert.deepStrictEqual(orphan.takeSnapshot(), {
     id: '',
+    ID: '',
     qualifiedName: '',
+    QualifiedName: '',
     state: '',
+    State: '',
     attributes: {},
+    Attributes: {},
     queueLen: 0,
-    events: []
+    QueueLen: 0,
+    events: [],
+    Events: []
   });
   orphan.set('x', 1);
   orphan.restart('data');
@@ -98,7 +104,7 @@ test('coverage: start overload, context wrappers, dispatch helpers, and stop lis
   const ctx = instance.context();
   assert.strictEqual(ctx.hsm, instance._hsm);
   assert.strictEqual(hsm.id(instance), 'machine-1');
-  assert.strictEqual(hsm.qualifiedName(instance), '/CoverageHelpers');
+  assert.strictEqual(hsm.qualifiedName(instance), 'CoverageHelpersName');
   assert.strictEqual(hsm.name(instance), 'CoverageHelpersName');
 
   const processed = hsm.afterProcess(ctx, instance, { name: 'go' });
@@ -248,14 +254,14 @@ test('coverage: explicit helper branches for onSet/onCall/when/at/history/group'
   assert.strictEqual(second.state(), '/GroupCoverageModel/done');
   group.restart();
   assert.strictEqual(first.state(), '/GroupCoverageModel/idle');
-  assert.deepStrictEqual(group.takeSnapshot(), {
-    id: '',
-    qualifiedName: '',
-    state: '',
-    attributes: {},
-    queueLen: 0,
-    events: []
-  });
+  const groupSnapshot = group.takeSnapshot();
+  assert.notStrictEqual(groupSnapshot.ID, '');
+  assert.strictEqual(groupSnapshot.QualifiedName, '/GroupCoverageModel,/GroupCoverageModel');
+  assert.strictEqual(groupSnapshot.State, '/GroupCoverageModel/idle | /GroupCoverageModel/idle');
+  assert.strictEqual(groupSnapshot.QueueLen, 0);
+  assert.strictEqual(groupSnapshot.members.length, 2);
+  assert.strictEqual(groupSnapshot.members[0].State, '/GroupCoverageModel/idle');
+  assert.strictEqual(hsm.makeGroup('coverage-group', first, second).takeSnapshot().ID, 'coverage-group');
   assert.strictEqual(group.clock(), hsm.DefaultClock);
   assert.strictEqual(hsm.clock(group), hsm.DefaultClock);
   group.stop();

@@ -38,6 +38,8 @@ function Profiler(disabled) {
  * @typedef {(RelativePath | AbsolutePath | `${string}/${string}`)} Path
  */
 
+/** @typedef {Promise<void>} Completion */
+
 /**
  * Reset all profiling data
  * @returns {void}
@@ -589,7 +591,7 @@ export { kinds };
  *   transitionMap: Record<Path, Record<Path, Transition[]>>,
  *   deferredMap: Record<Path, Record<Path, boolean>>,
  *   events: Record<string, Event<string, any>>,
- *   attributes: Record<string, { name: string, qualifiedName: string, hasDefault: boolean, defaultValue?: any }>,
+ *   attributes: Record<string, { name: string, qualifiedName: string, hasDefault: boolean, defaultValue?: any, type?: any }>,
  *   operations: Record<string, { name: string, qualifiedName: string, implementation: Function }>,
  *   partials: PartialElement<Element, Model>[]
  * }} Model
@@ -691,6 +693,31 @@ export const DefaultClock = {
     clearTimeout: typeof clearTimeout === 'function' ? clearTimeout : function () { },
     now: typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now : function () { return 0; }
 };
+
+/**
+ * Create a runtime configuration object using the canonical DSL field names.
+ * Lowercase aliases are included so existing JavaScript callers keep working.
+ * @param {string} [ID]
+ * @param {string} [Name]
+ * @param {any} [Data]
+ * @param {{ setTimeout?: Function, clearTimeout?: Function, now?: Function }} [Clock]
+ * @param {any} [Queue]
+ * @returns {Config}
+ */
+export function config(ID, Name, Data, Clock, Queue) {
+    return {
+        ID: ID,
+        Name: Name,
+        Data: Data,
+        Clock: Clock,
+        Queue: Queue,
+        id: ID,
+        name: Name,
+        data: Data,
+        clock: Clock,
+        queue: Queue
+    };
+}
 
 /**
  * Create an event definition with optional schema metadata.
@@ -822,17 +849,20 @@ export function lca(a, b) {
  * the optional regular queue receives only non-completion events.
  * @constructor
  * @param {Profiler} [profiler] - Optional profiler instance
- * @param {{push: function(Event<string, any>): void, pop: function(): (Event<string, any>|undefined), len: function(): number}} [fifo] - Optional regular event queue
+ * @param {{push?: function(Event<string, any>): void, pop?: function(): (Event<string, any>|undefined), len?: function(): number, Push?: function(Context, Event<string, any>): void, Pop?: function(Context): (Event<string, any>|undefined), Len?: function(Context): number}} [fifo] - Optional regular event queue
+ * @param {Context} [ctx] - Runtime context passed to canonical queue hooks
  */
-function Queue(profiler, fifo) {
+function Queue(profiler, fifo, ctx) {
     /** @type {Profiler|undefined} */
     this.profiler = profiler;
-    if (profiler && typeof profiler.push === 'function') {
+    if (profiler && (typeof profiler.push === 'function' || typeof profiler.Push === 'function')) {
         fifo = /** @type {any} */ (profiler);
         this.profiler = undefined;
     }
-    /** @type {{push: function(Event<string, any>): void, pop: function(): (Event<string, any>|undefined), len: function(): number}|undefined} */
-    this.fifo = fifo;
+    /** @type {{push?: function(Event<string, any>): void, pop?: function(): (Event<string, any>|undefined), len?: function(): number, Push?: function(Context, Event<string, any>): void, Pop?: function(Context): (Event<string, any>|undefined), Len?: function(Context): number}|undefined} */
+    this.fifo = validateQueueShape(fifo);
+    /** @type {Context|undefined} */
+    this.ctx = ctx;
     /** @type {Array<Event<string, any>>} */
     this.front = []; // For completion events, acts as a stack (LIFO)
     /** @type {Array<Event<string, any>>} */
@@ -840,9 +870,34 @@ function Queue(profiler, fifo) {
     this.backHead = 0;
 }
 
+function validateQueueShape(fifo) {
+    if (!fifo) {
+        return undefined;
+    }
+    var hasCanonical = 'Push' in fifo || 'Pop' in fifo || 'Len' in fifo;
+    var canonicalComplete =
+        typeof fifo.Push === 'function' &&
+        typeof fifo.Pop === 'function' &&
+        typeof fifo.Len === 'function';
+    var lowercaseComplete =
+        typeof fifo.push === 'function' &&
+        typeof fifo.pop === 'function' &&
+        typeof fifo.len === 'function';
+    if (hasCanonical ? canonicalComplete : lowercaseComplete) {
+        return fifo;
+    }
+    throw new TypeError('Queue requires complete Push/Pop/Len or push/pop/len hooks');
+}
+
+function validateNameNoSlash(kind, name) {
+    if (name.indexOf('/') !== -1) {
+        throw new TypeError(kind + ' name "' + name + '" cannot contain "/"');
+    }
+}
+
 Queue.prototype.len = function () {
     if (this.fifo) {
-        var lenOrError = this.fifo.len();
+        var lenOrError = this.fifo.Len ? this.fifo.Len(this.ctx) : (this.fifo.len ? this.fifo.len() : 0);
         return typeof lenOrError === 'number' ? this.front.length + lenOrError : lenOrError;
     }
     return this.front.length + (this.back.length - this.backHead);
@@ -860,7 +915,7 @@ Queue.prototype.pop = function () {
     if (this.front.length > 0) {
         event = this.front.pop(); // O(1) for completion events
     } else if (this.fifo) {
-        event = this.fifo.pop();
+        event = this.fifo.Pop ? this.fifo.Pop(this.ctx) : (this.fifo.pop ? this.fifo.pop() : undefined);
     } else if (this.backHead < this.back.length) {
         event = this.back[this.backHead];
         this.back[this.backHead] = undefined; // Help GC
@@ -890,7 +945,7 @@ Queue.prototype.push = function (event) {
     if (isKind(event.kind, kinds.CompletionEvent)) {
         this.front.push(event); // O(1)
     } else if (this.fifo) {
-        return this.fifo.push(event);
+        return this.fifo.Push ? this.fifo.Push(this.ctx, event) : (this.fifo.push ? this.fifo.push(event) : undefined);
     } else {
         this.back.push(event);
     }
@@ -1048,14 +1103,14 @@ export function Instance() {
  * @template {string} N
  * @template {any} T    
  * @param {Event<N, T>} event - The event to dispatch
- * @returns {void}
+ * @returns {Completion}
  */
 Instance.prototype.dispatch = function (event) {
     var self = this;
     if (!self._hsm) {
-        return;
+        return Promise.resolve();
     }
-    self._hsm.dispatch(event);
+    return self._hsm.dispatch(event);
 };
 
 /**
@@ -1095,12 +1150,13 @@ Instance.prototype.get = function (name) {
  * Update an attribute value by name.
  * @param {string} name
  * @param {any} value
- * @returns {void}
+ * @returns {Completion}
  */
 Instance.prototype.set = function (name, value) {
     if (this._hsm) {
-        this._hsm.set(name, value);
+        return this._hsm.set(name, value);
     }
+    return Promise.resolve();
 };
 
 /**
@@ -1132,14 +1188,7 @@ Instance.prototype.restart = function (data) {
  * @returns {Snapshot}
  */
 Instance.prototype.takeSnapshot = function () {
-    return this._hsm ? this._hsm.takeSnapshot() : {
-        id: '',
-        qualifiedName: '',
-        state: '',
-        attributes: {},
-        queueLen: 0,
-        events: []
-    };
+    return this._hsm ? this._hsm.takeSnapshot() : makeSnapshot('', '', '', {}, 0, []);
 };
 
 
@@ -1151,10 +1200,24 @@ Instance.prototype.takeSnapshot = function () {
 
 /**
  * @typedef {Object} Config
- * @property {string} [id] - The ID of the instance
- * @property {string} [name] - The name of the instance
- * @property {Queue} [queue] - Runtime event queue
+ * @property {string} [ID] - Canonical ID of the instance
+ * @property {string} [Name] - Canonical runtime name of the instance
+ * @property {any} [Data] - Canonical initial event data
+ * @property {{ setTimeout?: Function, clearTimeout?: Function, now?: Function }} [Clock] - Canonical runtime clock
+ * @property {any} [Queue] - Canonical runtime event queue hooks
+ * @property {string} [id] - Lowercase ID alias
+ * @property {string} [name] - Lowercase runtime name alias
+ * @property {any} [data] - Lowercase initial event data alias
+ * @property {{ setTimeout?: Function, clearTimeout?: Function, now?: Function }} [clock] - Lowercase runtime clock alias
+ * @property {any} [queue] - Lowercase runtime event queue alias
  */
+
+function configValue(config, canonical, lowercase) {
+    if (!config) {
+        return undefined;
+    }
+    return config[canonical] !== undefined ? config[canonical] : config[lowercase];
+}
 
 /**
  * Optimized HSM implementation with precomputed transition tables
@@ -1172,8 +1235,10 @@ function HSM(ctxOrInstance, instanceOrModel, maybeModelOrConfig, maybeConfig) {
         instanceOrModel = /** @type {T} */ (ctxOrInstance);
         ctxOrInstance = new Context();
     }
-    const id = (maybeConfig ? maybeConfig.id : '') || HSM.id++;
-    const name = (maybeConfig ? maybeConfig.name : '') || /** @type {Model} */ (maybeModelOrConfig).qualifiedName;
+    const id = configValue(maybeConfig, 'ID', 'id') || HSM.id++;
+    const name = configValue(maybeConfig, 'Name', 'name') || /** @type {Model} */ (maybeModelOrConfig).qualifiedName;
+    const runtimeQueue = configValue(maybeConfig, 'Queue', 'queue');
+    const runtimeClock = configValue(maybeConfig, 'Clock', 'clock') || {};
     /** @type {T} */
     this.instance = /** @type {T} */ (instanceOrModel);
     /** @type {Context} */
@@ -1183,7 +1248,7 @@ function HSM(ctxOrInstance, instanceOrModel, maybeModelOrConfig, maybeConfig) {
     /** @type {Vertex|Model} */
     this.currentState = /** @type {any} */ (maybeModelOrConfig); // Model acts as root state
     /** @type {Queue} */
-    this.queue = new Queue((maybeConfig && maybeConfig.queue) || undefined);
+    this.queue = new Queue(undefined, runtimeQueue || undefined, this.ctx);
     /** @type {Object<string, Active>} */
     this.active = {}; // Use object instead of Map for Espruino compatibility
     /** @type {boolean} */
@@ -1210,11 +1275,11 @@ function HSM(ctxOrInstance, instanceOrModel, maybeModelOrConfig, maybeConfig) {
     };
     /** @type {{ setTimeout: Function, clearTimeout: Function, now: Function }} */
     this.clock = {
-        setTimeout: (maybeConfig && maybeConfig.clock && maybeConfig.clock.setTimeout) || DefaultClock.setTimeout,
-        clearTimeout: (maybeConfig && maybeConfig.clock && maybeConfig.clock.clearTimeout) || DefaultClock.clearTimeout,
-        now: (maybeConfig && maybeConfig.clock && maybeConfig.clock.now) || DefaultClock.now
+        setTimeout: runtimeClock.setTimeout || runtimeClock.SetTimeout || DefaultClock.setTimeout,
+        clearTimeout: runtimeClock.clearTimeout || runtimeClock.ClearTimeout || DefaultClock.clearTimeout,
+        now: runtimeClock.now || runtimeClock.Now || DefaultClock.now
     };
-    this.startData = maybeConfig ? maybeConfig.data : undefined;
+    this.startData = configValue(maybeConfig, 'Data', 'data');
     this.instance._hsm = this;
     this.ctx.hsm = this;
 }
@@ -1280,16 +1345,52 @@ HSM.prototype.onAfter = function (bucket, key, listener) {
 };
 
 HSM.prototype.get = function (name) {
-    return this.attributes[qualifyModelName(this.model, name)];
+    return cloneRuntimeValue(this.attributes[qualifyModelName(this.model, name)]);
 };
+
+function valueMatchesAttributeType(attribute, value) {
+    var type = attribute.type;
+    if (type === undefined && attribute.hasDefault && attribute.defaultValue !== undefined && attribute.defaultValue !== null) {
+        type = attribute.defaultValue.constructor;
+    }
+    if (type === undefined || type === null) {
+        return true;
+    }
+    if (type === Number) {
+        return typeof value === 'number';
+    }
+    if (type === String) {
+        return typeof value === 'string';
+    }
+    if (type === Boolean) {
+        return typeof value === 'boolean';
+    }
+    if (type === Array) {
+        return Array.isArray(value);
+    }
+    if (type === Object) {
+        return value !== null && typeof value === 'object' && !Array.isArray(value);
+    }
+    if (typeof type === 'function') {
+        return value instanceof type;
+    }
+    if (typeof type === 'string') {
+        return typeof value === type;
+    }
+    return true;
+}
 
 HSM.prototype.set = function (name, value) {
     var qualifiedName = qualifyModelName(this.model, name);
+    var attribute = this.model.attributes && this.model.attributes[qualifiedName];
+    if (!attribute || !valueMatchesAttributeType(attribute, value)) {
+        return Promise.resolve();
+    }
     var hadValue = Object.prototype.hasOwnProperty.call(this.attributes, qualifiedName);
     var old = this.attributes[qualifiedName];
     this.attributes[qualifiedName] = value;
     if (hadValue && old === value) {
-        return;
+        return Promise.resolve();
     }
     var event = {
         kind: kinds.ChangeEvent,
@@ -1301,7 +1402,7 @@ HSM.prototype.set = function (name, value) {
             new: value
         }
     };
-    this.dispatch(event);
+    return this.dispatch(event);
 };
 
 HSM.prototype.call = function (name) {
@@ -1344,6 +1445,208 @@ HSM.prototype.invoke = function (name, ctx, args) {
     return fn.apply(this.instance, args);
 };
 
+function isPlainSnapshotObject(value) {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    var proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+}
+
+function cloneFreezeSnapshotValue(value, seen) {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+    if (!seen) {
+        seen = typeof WeakMap !== 'undefined' ? new WeakMap() : undefined;
+    }
+    if (seen && seen.has(value)) {
+        return seen.get(value);
+    }
+    if (Array.isArray(value)) {
+        var arr = new Array(value.length);
+        if (seen) {
+            seen.set(value, arr);
+        }
+        for (var i = 0; i < value.length; i++) {
+            arr[i] = cloneFreezeSnapshotValue(value[i], seen);
+        }
+        return Object.freeze(arr);
+    }
+    if (isPlainSnapshotObject(value)) {
+        var clone = {};
+        if (seen) {
+            seen.set(value, clone);
+        }
+        for (var key in value) {
+            if (Object.prototype.hasOwnProperty.call(value, key)) {
+                clone[key] = cloneFreezeSnapshotValue(value[key], seen);
+            }
+        }
+        return Object.freeze(clone);
+    }
+    return value;
+}
+
+function cloneRuntimeValue(value, seen) {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+        return value;
+    }
+    if (typeof value === 'function') {
+        return value;
+    }
+    if (!seen) {
+        seen = typeof WeakMap !== 'undefined' ? new WeakMap() : undefined;
+    }
+    if (seen && seen.has(value)) {
+        return seen.get(value);
+    }
+    if (value instanceof Date) {
+        var dateCopy = new Date(value.getTime());
+        if (seen) {
+            seen.set(value, dateCopy);
+        }
+        return dateCopy;
+    }
+    if (value instanceof RegExp) {
+        var regexpCopy = new RegExp(value.source, value.flags);
+        regexpCopy.lastIndex = value.lastIndex;
+        if (seen) {
+            seen.set(value, regexpCopy);
+        }
+        return regexpCopy;
+    }
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+        var viewCopy = new value.constructor(value);
+        if (seen) {
+            seen.set(value, viewCopy);
+        }
+        return viewCopy;
+    }
+    if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+        var bufferCopy = value.slice(0);
+        if (seen) {
+            seen.set(value, bufferCopy);
+        }
+        return bufferCopy;
+    }
+    if (Array.isArray(value)) {
+        var arr = new Array(value.length);
+        if (seen) {
+            seen.set(value, arr);
+        }
+        for (var i = 0; i < value.length; i++) {
+            arr[i] = cloneRuntimeValue(value[i], seen);
+        }
+        return arr;
+    }
+    if (value instanceof Map) {
+        var mapCopy = new Map();
+        if (seen) {
+            seen.set(value, mapCopy);
+        }
+        value.forEach(function (entryValue, entryKey) {
+            mapCopy.set(cloneRuntimeValue(entryKey, seen), cloneRuntimeValue(entryValue, seen));
+        });
+        return mapCopy;
+    }
+    if (value instanceof Set) {
+        var setCopy = new Set();
+        if (seen) {
+            seen.set(value, setCopy);
+        }
+        value.forEach(function (entryValue) {
+            setCopy.add(cloneRuntimeValue(entryValue, seen));
+        });
+        return setCopy;
+    }
+    var clone = Object.create(Object.getPrototypeOf(value));
+    if (seen) {
+        seen.set(value, clone);
+    }
+    var keys = Object.keys(value);
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+        clone[keys[keyIndex]] = cloneRuntimeValue(value[keys[keyIndex]], seen);
+    }
+    return clone;
+}
+
+function cloneEventMetadataValue(value, seen) {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+    if (!seen) {
+        seen = typeof WeakMap !== 'undefined' ? new WeakMap() : undefined;
+    }
+    if (seen && seen.has(value)) {
+        return seen.get(value);
+    }
+    if (Array.isArray(value)) {
+        var arr = new Array(value.length);
+        if (seen) {
+            seen.set(value, arr);
+        }
+        for (var i = 0; i < value.length; i++) {
+            arr[i] = cloneEventMetadataValue(value[i], seen);
+        }
+        return arr;
+    }
+    if (isPlainSnapshotObject(value)) {
+        var clone = {};
+        if (seen) {
+            seen.set(value, clone);
+        }
+        for (var key in value) {
+            if (Object.prototype.hasOwnProperty.call(value, key)) {
+                clone[key] = cloneEventMetadataValue(value[key], seen);
+            }
+        }
+        return clone;
+    }
+    return value;
+}
+
+function cloneDispatchEvent(event) {
+    var clone = {};
+    for (var name in event) {
+        clone[name] = name === 'data' ? event[name] : cloneEventMetadataValue(event[name]);
+    }
+    if (
+        Object.prototype.hasOwnProperty.call(event, 'data') &&
+        !Object.prototype.hasOwnProperty.call(clone, 'data')
+    ) {
+        clone.data = event.data;
+    }
+    return clone;
+}
+
+function makeSnapshot(id, qualifiedName, state, attributes, queueLen, events, seen, extra) {
+    var frozenAttributes = cloneFreezeSnapshotValue(attributes, seen);
+    var frozenEvents = cloneFreezeSnapshotValue(events, seen);
+    var snapshot = {
+        id: id,
+        ID: id,
+        qualifiedName: qualifiedName,
+        QualifiedName: qualifiedName,
+        state: state,
+        State: state,
+        attributes: frozenAttributes,
+        Attributes: frozenAttributes,
+        queueLen: queueLen,
+        QueueLen: queueLen,
+        events: frozenEvents,
+        Events: frozenEvents
+    };
+    if (extra) {
+        for (var key in extra) {
+            if (Object.prototype.hasOwnProperty.call(extra, key)) {
+                snapshot[key] = cloneFreezeSnapshotValue(extra[key], seen);
+            }
+        }
+    }
+    return Object.freeze(snapshot);
+}
+
 HSM.prototype.restart = function (data) {
     this.stop();
     this.startData = data;
@@ -1355,27 +1658,35 @@ HSM.prototype.restart = function (data) {
 HSM.prototype.takeSnapshot = function () {
     /** @type {Array<any>} */
     var events = [];
+    var seen = typeof WeakMap !== 'undefined' ? new WeakMap() : undefined;
     var currentStateName = this.currentState ? this.currentState.qualifiedName : this.model.qualifiedName;
     var transitionsByEvent = this.model.transitionMap[currentStateName] || {};
     for (var eventName in transitionsByEvent) {
         var transitionList = transitionsByEvent[eventName];
         for (var i = 0; i < transitionList.length; i++) {
+            var schema = this.model.events[eventName] ? cloneFreezeSnapshotValue(this.model.events[eventName].schema, seen) : undefined;
             events.push({
                 event: eventName,
+                Name: eventName,
+                Kind: kinds.Event,
                 target: transitionList[i].target,
+                Target: transitionList[i].target,
                 guard: !!transitionList[i].guard,
-                schema: this.model.events[eventName] ? this.model.events[eventName].schema : undefined
+                Guard: !!transitionList[i].guard,
+                schema: schema,
+                Schema: schema
             });
         }
     }
-    return {
-        id: this.id,
-        qualifiedName: this.model.qualifiedName,
-        state: currentStateName,
-        attributes: Object.assign({}, this.attributes),
-        queueLen: this.len(),
-        events: events
-    };
+    return makeSnapshot(
+        this.id,
+        this.name,
+        currentStateName,
+        this.attributes,
+        this.len(),
+        events,
+        seen
+    );
 };
 
 HSM.prototype.recordHistory = function (stateName) {
@@ -1420,23 +1731,25 @@ HSM.prototype.followHistoryDefault = function (vertex, event) {
  * @template {string} N
  * @template {any} T
  * @param {Event<N, T>} event - Event to dispatch
- * @returns {void}
+ * @returns {Completion}
  */
 HSM.prototype.dispatch = function (event) {
-    if (!event.kind) {
-        event.kind = kinds.Event;
+    var runtimeEvent = cloneDispatchEvent(event);
+    if (!runtimeEvent.kind) {
+        runtimeEvent.kind = kinds.Event;
     }
-    this.push(event);
-    this.notify('dispatched', event.name);
+    this.push(runtimeEvent);
+    this.notify('dispatched', runtimeEvent.name);
 
     if (this.processing) {
-        return;
+        return Promise.resolve();
     }
     if (this.currentState.qualifiedName === /** @type {any} */ (this.model).qualifiedName && this.ctx.done) {
-        return;
+        return Promise.resolve();
     }
     this.processing = true;
     this.process(); // Process events synchronously
+    return Promise.resolve();
 };
 
 /**
@@ -1902,6 +2215,7 @@ export function stop(instance) {
  * @returns {PartialElement<State, M>} State partial function
  */
 export function state(name) {
+    validateNameNoSlash('State', name);
     /** @type {PartialElement<Transition|Vertex, M>[]} */
     var partials = slice(arguments, 1);
     return function (model, stack) {
@@ -2358,18 +2672,24 @@ export function guard(expression) {
 /**
  * Define a model-level attribute.
  * @param {string} name
+ * @param {any} [maybeType]
  * @param {any} [maybeDefault]
  * @returns {PartialElement<Element>}
  */
-export function attribute(name, maybeDefault) {
-    var hasDefault = arguments.length > 1;
+export function attribute(name, maybeType, maybeDefault) {
+    validateNameNoSlash('Attribute', name);
+    var hasType = arguments.length > 1 && (typeof maybeType === 'function' || typeof maybeType === 'string');
+    var hasDefault = hasType ? arguments.length > 2 : arguments.length > 1;
+    var defaultValue = hasType ? maybeDefault : maybeType;
+    var type = hasType ? maybeType : (hasDefault && defaultValue !== undefined && defaultValue !== null ? defaultValue.constructor : undefined);
     return function (model) {
         var qualifiedName = qualifyModelName(model, name);
         model.attributes[qualifiedName] = {
             name: name,
             qualifiedName: qualifiedName,
             hasDefault: hasDefault,
-            defaultValue: maybeDefault
+            defaultValue: defaultValue,
+            type: type
         };
     };
 }
@@ -2381,6 +2701,7 @@ export function attribute(name, maybeDefault) {
  * @returns {PartialElement<Element>}
  */
 export function operation(name, implementation) {
+    validateNameNoSlash('Operation', name);
     return function (model) {
         var qualifiedName = qualifyModelName(model, name);
         model.operations[qualifiedName] = {
@@ -2584,6 +2905,7 @@ export function defer() {
  * @returns {PartialElement<State>} Final state partial function
  */
 export function final(name) {
+    validateNameNoSlash('Final', name);
     return function (model, stack) {
         var parent = /** @type {State} */ (find(stack, kinds.State));
 
@@ -2619,6 +2941,7 @@ export function shallowHistory(elementOrName) {
     var name = '';
     if (typeof elementOrName === 'string') {
         name = elementOrName;
+        validateNameNoSlash('ShallowHistory', name);
     } else if (typeof elementOrName === 'function') {
         partials.unshift(elementOrName);
     }
@@ -2654,6 +2977,7 @@ export function deepHistory(elementOrName) {
     var name = '';
     if (typeof elementOrName === 'string') {
         name = elementOrName;
+        validateNameNoSlash('DeepHistory', name);
     } else if (typeof elementOrName === 'function') {
         partials.unshift(elementOrName);
     }
@@ -2691,6 +3015,7 @@ export function choice(elementOrName) {
     // If first argument is a string, it's the name of the choice pseudostate
     if (typeof elementOrName === 'string') {
         name = elementOrName;
+        validateNameNoSlash('Choice', name);
     } else if (typeof elementOrName === 'function') {
         // If it's a partial function, add it to the beginning of partials
         partials.unshift(elementOrName);
@@ -2736,10 +3061,12 @@ export function choice(elementOrName) {
  * @param {Event<N, T>} event 
  */
 export function dispatchAll(ctx, event) {
+    var completions = [];
     for (var id in ctx.instances) {
         var instance = ctx.instances[id];
-        instance.dispatch(event);
+        completions.push(instance.dispatch(event));
     }
+    return Promise.all(completions).then(function () {});
 }
 
 /**
@@ -2750,6 +3077,7 @@ export function dispatchAll(ctx, event) {
  * @returns {T} The defined model
  */
 export function define(name) {
+    validateNameNoSlash('Model', name);
     /** @type {PartialElement<Element, T>[]} */
     var partials = slice(arguments, 1);
     /** @type {T} */
@@ -2801,19 +3129,21 @@ export function define(name) {
  * Dispatch to selected instance ids, or all instances when no ids are provided.
  * @param {Context} ctx
  * @param {Event<string, any>} event
- * @returns {void}
+ * @returns {Completion}
  */
 export function dispatchTo(ctx, event) {
     var ids = slice(arguments, 2);
     if (!ids.length) {
         return dispatchAll(ctx, event);
     }
+    var completions = [];
     for (var i = 0; i < ids.length; i++) {
         var instance = ctx.instances[ids[i]];
         if (instance) {
-            instance.dispatch(event);
+            completions.push(instance.dispatch(event));
         }
     }
+    return Promise.all(completions).then(function () {});
 }
 
 export function get(ctxOrInstance, maybeInstanceOrName, maybeName) {
@@ -2827,8 +3157,9 @@ export function set(ctxOrInstance, maybeInstanceOrName, maybeNameOrValue, maybeV
     var name = ctxOrInstance instanceof Context ? maybeNameOrValue : maybeInstanceOrName;
     var value = ctxOrInstance instanceof Context ? maybeValue : maybeNameOrValue;
     if (instance && instance._hsm) {
-        instance._hsm.set(name, value);
+        return instance._hsm.set(name, value);
     }
+    return Promise.resolve();
 }
 
 export function call(ctxOrInstance, maybeInstanceOrName, maybeName) {
@@ -2848,14 +3179,7 @@ export function restart(instance, data) {
 
 export function takeSnapshot(ctxOrInstance, maybeInstance) {
     var instance = ctxOrInstance instanceof Context ? maybeInstance : ctxOrInstance;
-    return instance && instance._hsm ? instance._hsm.takeSnapshot() : {
-        id: '',
-        qualifiedName: '',
-        state: '',
-        attributes: {},
-        queueLen: 0,
-        events: []
-    };
+    return instance && instance._hsm ? instance._hsm.takeSnapshot() : makeSnapshot('', '', '', {}, 0, []);
 }
 
 export function afterProcess(ctx, instance, maybeEvent) {
@@ -2921,7 +3245,7 @@ export function id(instance) {
 }
 
 export function qualifiedName(instance) {
-    return instance && instance._hsm ? instance._hsm.model.qualifiedName : '';
+    return instance && instance._hsm ? instance._hsm.name : '';
 }
 
 export function name(instance) {
@@ -2941,7 +3265,13 @@ export function clock(instance) {
  */
 export function Group() {
     this.instances = [];
-    for (var i = 0; i < arguments.length; i++) {
+    this.id = '';
+    var start = 0;
+    if (typeof arguments[0] === 'string') {
+        this.id = arguments[0];
+        start = 1;
+    }
+    for (var i = start; i < arguments.length; i++) {
         var instance = arguments[i];
         if (!instance) {
             continue;
@@ -2957,15 +3287,19 @@ export function Group() {
 }
 
 Group.prototype.dispatch = function (event) {
+    var completions = [];
     for (var i = 0; i < this.instances.length; i++) {
-        this.instances[i].dispatch(event);
+        completions.push(this.instances[i].dispatch(event));
     }
+    return Promise.all(completions).then(function () {});
 };
 
 Group.prototype.set = function (name, value) {
+    var completions = [];
     for (var i = 0; i < this.instances.length; i++) {
-        this.instances[i].set(name, value);
+        completions.push(this.instances[i].set(name, value));
     }
+    return Promise.all(completions).then(function () {});
 };
 
 Group.prototype.call = function (name) {
@@ -2989,14 +3323,33 @@ Group.prototype.restart = function (data) {
 };
 
 Group.prototype.takeSnapshot = function () {
-    return {
-        id: '',
-        qualifiedName: '',
-        state: '',
-        attributes: {},
-        queueLen: 0,
-        events: []
-    };
+    var members = [];
+    var queueLen = 0;
+    var events = [];
+    var ids = [];
+    var qualifiedNames = [];
+    var states = [];
+    for (var i = 0; i < this.instances.length; i++) {
+        var snapshot = this.instances[i].takeSnapshot();
+        members.push(snapshot);
+        queueLen += snapshot.queueLen;
+        ids.push(snapshot.id);
+        qualifiedNames.push(snapshot.qualifiedName);
+        states.push(snapshot.state);
+        for (var j = 0; j < snapshot.events.length; j++) {
+            events.push(snapshot.events[j]);
+        }
+    }
+    return makeSnapshot(
+        this.id || ids.join(','),
+        qualifiedNames.join(','),
+        states.join(' | '),
+        {},
+        queueLen,
+        events,
+        undefined,
+        { members: members }
+    );
 };
 
 Group.prototype.clock = function () {
@@ -3048,6 +3401,7 @@ export const Choice = choice;
 export const Transition = transition;
 export const Initial = initial;
 export const Event = event;
+export const Config = config;
 export const On = on;
 export const OnCall = onCall;
 export const OnSet = onSet;

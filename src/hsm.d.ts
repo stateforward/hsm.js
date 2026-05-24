@@ -1,4 +1,5 @@
 export type Kind = number;
+export type Completion = Promise<void>;
 
 export interface Event<N extends string = string, T = any> {
   kind: Kind;
@@ -11,19 +12,31 @@ export interface Event<N extends string = string, T = any> {
 }
 
 export interface EventSnapshot {
-  event: string;
-  target?: string;
-  guard: boolean;
-  schema?: any;
+  readonly event: string;
+  readonly Name: string;
+  readonly Kind: Kind;
+  readonly target?: string;
+  readonly Target?: string;
+  readonly guard: boolean;
+  readonly Guard: boolean;
+  readonly schema?: any;
+  readonly Schema?: any;
 }
 
 export interface Snapshot {
-  id: string;
-  qualifiedName: string;
-  state: string;
-  attributes: Record<string, any>;
-  queueLen: number;
-  events: EventSnapshot[];
+  readonly id: string;
+  readonly ID: string;
+  readonly qualifiedName: string;
+  readonly QualifiedName: string;
+  readonly state: string;
+  readonly State: string;
+  readonly attributes: Readonly<Record<string, any>>;
+  readonly Attributes: Readonly<Record<string, any>>;
+  readonly queueLen: number;
+  readonly QueueLen: number;
+  readonly events: ReadonlyArray<EventSnapshot>;
+  readonly Events: ReadonlyArray<EventSnapshot>;
+  readonly members?: ReadonlyArray<Snapshot>;
 }
 
 export interface ClockConfig {
@@ -35,6 +48,11 @@ export interface ClockConfig {
 export const DefaultClock: Required<ClockConfig>;
 
 export interface Config {
+  ID?: string;
+  Name?: string;
+  Data?: any;
+  Clock?: ClockConfig;
+  Queue?: QueueLike;
   id?: string;
   name?: string;
   data?: any;
@@ -52,12 +70,12 @@ export class Context {
 
 export class Instance {
   _hsm: HSM<this> | null;
-  dispatch(event: Event): void;
+  dispatch(event: Event): Completion;
   state(): string;
   context(): Context;
   clock(): Required<ClockConfig>;
   get(name: string): any;
-  set(name: string, value: any): void;
+  set(name: string, value: any): Completion;
   call(name: string, ...args: any[]): any;
   restart(data?: any): void;
   takeSnapshot(): Snapshot;
@@ -71,29 +89,35 @@ export class HSM<T extends Instance = Instance> {
   readonly queue: Queue;
   readonly id: string;
   readonly name: string;
-  dispatch(event: Event): void;
+  dispatch(event: Event): Completion;
   state(): string;
   start(): HSM<T>;
   stop(): void;
   restart(data?: any): void;
   get(name: string): any;
-  set(name: string, value: any): void;
+  set(name: string, value: any): Completion;
   call(name: string, ...args: any[]): any;
   takeSnapshot(): Snapshot;
 }
 
-export interface QueueLike {
-  len(): number | unknown;
-  pop(): Event | undefined | unknown;
-  push(event: Event): void | unknown;
-}
+export type QueueLike =
+  | {
+      Len(ctx: Context | undefined): number | unknown;
+      Pop(ctx: Context | undefined): Event | undefined | unknown;
+      Push(ctx: Context | undefined, event: Event): void | unknown;
+    }
+  | {
+      len(): number | unknown;
+      pop(): Event | undefined | unknown;
+      push(event: Event): void | unknown;
+    };
 
 export class Queue {
   backHead: number;
   back: Array<Event | undefined>;
   front: Event[];
   fifo?: QueueLike;
-  constructor(profilerOrFifo?: any, fifo?: QueueLike);
+  constructor(profilerOrFifo?: any, fifo?: QueueLike, ctx?: Context);
   len(): number | unknown;
   pop(): Event | undefined | unknown;
   push(event: Event): void | unknown;
@@ -110,10 +134,11 @@ export class Profiler {
 }
 
 export class Group {
-  constructor(...instances: Instance[]);
-  dispatch(event: Event): void;
+  constructor(...instances: Array<Instance | Group | null | undefined>);
+  constructor(groupID: string, ...instances: Array<Instance | Group | null | undefined>);
+  dispatch(event: Event): Completion;
   clock(): Required<ClockConfig>;
-  set(name: string, value: any): void;
+  set(name: string, value: any): Completion;
   call(name: string, ...args: any[]): any;
   stop(): void;
   restart(data?: any): void;
@@ -130,7 +155,13 @@ export interface Model {
   members: Record<string, any>;
   transitionMap: Record<string, Record<string, any[]>>;
   deferredMap: Record<string, Record<string, boolean>>;
-  attributes: Record<string, any>;
+  attributes: Record<string, {
+    name: string;
+    qualifiedName: string;
+    hasDefault: boolean;
+    defaultValue?: any;
+    type?: any;
+  }>;
   operations: Record<string, any>;
   events: Record<string, Event>;
 }
@@ -184,12 +215,12 @@ export function start<T extends Instance>(instance: T, model: Model, config?: Co
 export function start<T extends Instance>(ctx: Context, instance: T, model: Model, config?: Config): T;
 export function stop(instance: Instance): void;
 export function restart(instance: Instance, data?: any): void;
-export function dispatchAll(ctx: Context, event: Event): void;
-export function dispatchTo(ctx: Context, event: Event, ...ids: string[]): void;
+export function dispatchAll(ctx: Context, event: Event): Completion;
+export function dispatchTo(ctx: Context, event: Event, ...ids: string[]): Completion;
 export function get(instance: Instance, name: string): any;
 export function get(ctx: Context, instance: Instance, name: string): any;
-export function set(instance: Instance, name: string, value: any): void;
-export function set(ctx: Context, instance: Instance, name: string, value: any): void;
+export function set(instance: Instance, name: string, value: any): Completion;
+export function set(ctx: Context, instance: Instance, name: string, value: any): Completion;
 export function call(instance: Instance, name: string, ...args: any[]): any;
 export function call(ctx: Context, instance: Instance, name: string, ...args: any[]): any;
 export function takeSnapshot(instance: Instance): Snapshot;
@@ -208,6 +239,7 @@ export function state<M extends Model = Model>(name: string, ...partials: Partia
 export function initial<M extends Model = Model>(elementOrName?: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
 export function transition<M extends Model = Model>(...partials: PartialElement<any, M>[]): PartialElement<any, M>;
 export function event<N extends string = string>(name: N, schema?: any): Event<N>;
+export function config(ID?: string, Name?: string, Data?: any, Clock?: ClockConfig, Queue?: QueueLike): Config;
 export function source(name: string): PartialElement;
 export function target(name: string): PartialElement;
 export function on(event: Event | string): PartialElement;
@@ -229,9 +261,12 @@ export function choice<M extends Model = Model>(elementOrName: string | PartialE
 export function shallowHistory<M extends Model = Model>(elementOrName: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
 export function deepHistory<M extends Model = Model>(elementOrName: string | PartialElement<any, M>, ...partials: PartialElement<any, M>[]): PartialElement<any, M>;
 export function define<T extends Model = Model>(name: string, ...partials: PartialElement<any, T>[]): T;
+export function attribute(name: string, type: any): PartialElement;
+export function attribute(name: string, type: any, defaultValue: any): PartialElement;
 export function attribute(name: string, defaultValue?: any): PartialElement;
 export function operation(name: string, implementation: Function): PartialElement;
-export function makeGroup(...instances: Instance[]): Group;
+export function makeGroup(groupID: string, ...instances: Array<Instance | Group | null | undefined>): Group;
+export function makeGroup(...instances: Array<Instance | Group | null | undefined>): Group;
 
 export const Define: typeof define;
 export const State: typeof state;
@@ -242,6 +277,7 @@ export const Choice: typeof choice;
 export const Transition: typeof transition;
 export const Initial: typeof initial;
 export const Event: typeof event;
+export const Config: typeof config;
 export const On: typeof on;
 export const OnCall: typeof onCall;
 export const OnSet: typeof onSet;
